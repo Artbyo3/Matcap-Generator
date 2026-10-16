@@ -1,0 +1,2131 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Matcap Generator</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: square preview stage with a floating tool bar, fixed-width control rail on the right; rail drops below the stage on phones. */
+:root{
+  --bg:#e8e9ed; --panel:#f5f5f8; --stage:#dcdee4; --fg:#1a1c21; --muted:#666b77;
+  --line:#d0d3da; --track:#c4c8d1; --accent:#12806f; --accent-fg:#ffffff; --hover:#e6e8ee;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#101114; --panel:#17191d; --stage:#0c0d0f; --fg:#e7e8ec; --muted:#8a8f9b;
+  --line:#272a31; --track:#30343c; --accent:#3fd0b8; --accent-fg:#06201b; --hover:#22252b; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#101114; --panel:#17191d; --stage:#0c0d0f; --fg:#e7e8ec; --muted:#8a8f9b;
+  --line:#272a31; --track:#30343c; --accent:#3fd0b8; --accent-fg:#06201b; --hover:#22252b; color-scheme:dark}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{background:var(--bg);color:var(--fg);font:13px/1.2 system-ui,-apple-system,"Segoe UI",sans-serif;
+  padding-left:max(0px,env(safe-area-inset-left,0px));padding-right:max(0px,env(safe-area-inset-right,0px));overflow:hidden}
+button,input{font:inherit;color:inherit}
+svg{width:100%;height:100%;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;display:block}
+.app{display:grid;grid-template-columns:minmax(0,1fr) 320px;height:100%}
+.stage{position:relative;background:var(--stage);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:20px;min-width:0;min-height:0}
+.view{position:relative;flex:none;touch-action:none}
+#cv{display:block;width:100%;height:100%}
+#hd{position:absolute;inset:0;pointer-events:none}
+.h{position:absolute;width:20px;height:20px;margin:-10px 0 0 -10px;border-radius:50%;border:2px solid #fff;padding:0;pointer-events:auto;cursor:grab;
+  box-shadow:0 0 0 1px rgba(0,0,0,.55),0 2px 6px rgba(0,0,0,.35);touch-action:none}
+.h.on{width:26px;height:26px;margin:-13px 0 0 -13px;box-shadow:0 0 0 2px var(--accent),0 0 0 3px rgba(0,0,0,.4),0 2px 8px rgba(0,0,0,.4)}
+.h:active{cursor:grabbing}
+.bar{display:flex;align-items:center;gap:4px;padding:5px;background:var(--panel);border:1px solid var(--line);border-radius:12px;flex-wrap:wrap;justify-content:center;max-width:100%}
+.b{width:34px;height:34px;padding:7px;border:0;border-radius:8px;background:none;color:var(--muted);cursor:pointer;flex:none}
+.b:hover:not(:disabled){background:var(--hover);color:var(--fg)}
+.b:disabled{opacity:.35;cursor:default}
+.b[aria-pressed="true"]{color:var(--accent);background:var(--hover)}
+.b:focus-visible,.seg button:focus-visible,.chip:focus-visible,.h:focus-visible,.sw:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.b.go{background:var(--accent);color:var(--accent-fg)}
+.b.go:hover:not(:disabled){background:var(--accent);color:var(--accent-fg);filter:brightness(1.08)}
+.sep{width:1px;height:20px;background:var(--line);margin:0 4px}
+.seg{display:flex;gap:2px}
+.seg button{height:34px;padding:0 9px;border:0;border-radius:8px;background:none;color:var(--muted);font:500 11px var(--mono);cursor:pointer}
+.seg button:hover{background:var(--hover);color:var(--fg)}
+.seg button[aria-pressed="true"]{color:var(--accent);background:var(--hover)}
+.panel{background:var(--panel);border-left:1px solid var(--line);overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:16px;padding-bottom:max(16px,env(safe-area-inset-bottom,0px))}
+.panel>*+*{border-top:1px solid var(--line);padding-top:16px}
+.presets{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;justify-items:center}
+.pr{width:56px;height:56px;border-radius:50%;padding:0;border:1px solid var(--line);background:var(--stage);cursor:pointer;overflow:hidden}
+.pr canvas{width:100%;height:100%;display:block}
+.pr:hover{border-color:var(--muted)}
+.chips{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.chip{width:24px;height:24px;border-radius:50%;padding:0;border:1px solid var(--line);cursor:pointer}
+.chip.on{box-shadow:0 0 0 2px var(--panel),0 0 0 4px var(--accent)}
+.chip.add{background:none;color:var(--muted);padding:4px;border-style:dashed}
+.chip.add:hover:not(:disabled){color:var(--fg);border-color:var(--muted)}
+.chip.add:disabled{opacity:.35;cursor:default}
+.grp{display:flex;flex-direction:column;gap:6px}
+.tools{display:flex;gap:6px;align-items:center}
+.tools .grow{flex:1}
+.row{display:grid;grid-template-columns:20px minmax(0,1fr) 38px;gap:10px;align-items:center;height:26px;cursor:pointer}
+.ic{width:18px;height:18px;color:var(--muted);display:block}
+.row output{font:400 11px var(--mono);color:var(--muted);text-align:right;font-variant-numeric:tabular-nums}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:20px;background:none;margin:0;cursor:pointer;--p:50%}
+input[type=range]::-webkit-slider-runnable-track{height:3px;border-radius:2px;background:linear-gradient(to right,var(--fg) var(--p),var(--track) var(--p))}
+input[type=range]::-moz-range-track{height:3px;border-radius:2px;background:var(--track)}
+input[type=range]::-moz-range-progress{height:3px;border-radius:2px;background:var(--fg)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--fg);border:2px solid var(--panel);margin-top:-5.5px}
+input[type=range]::-moz-range-thumb{width:10px;height:10px;border-radius:50%;background:var(--fg);border:2px solid var(--panel)}
+input[type=range]:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:4px}
+.sw{-webkit-appearance:none;appearance:none;width:28px;height:28px;border-radius:50%;border:1px solid var(--line);padding:0;background:none;cursor:pointer;overflow:hidden;flex:none}
+.sw::-webkit-color-swatch-wrapper{padding:0}
+.sw::-webkit-color-swatch{border:0;border-radius:50%}
+.sw::-moz-color-swatch{border:0;border-radius:50%}
+.swrow{display:flex;gap:10px;align-items:center}
+.msg{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted)}
+@media (max-width:760px){
+  body{overflow:auto;height:auto}
+  html,body{height:auto}
+  .app{grid-template-columns:minmax(0,1fr);height:auto}
+  .stage{height:min(calc(100vw + 90px),88vh);padding:12px;gap:10px}
+  .panel{border-left:0;border-top:1px solid var(--line);overflow:visible}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+<div class="app">
+  <main class="stage" id="stage">
+    <div class="view" id="view">
+      <canvas id="cv"></canvas>
+      <div id="hd"></div>
+    </div>
+    <div class="bar" id="bar">
+      <button class="b" id="undo" title="Undo" aria-label="Undo"></button>
+      <button class="b" id="redo" title="Redo" aria-label="Redo"></button>
+      <button class="b" id="dice" title="Randomize" aria-label="Randomize"></button>
+      <span class="sep"></span>
+      <button class="b" id="mode" title="3D preview" aria-label="3D preview" aria-pressed="false"></button>
+      <button class="b" id="alpha" title="Transparent corners" aria-label="Transparent corners" aria-pressed="false"></button>
+      <span class="sep"></span>
+      <div class="seg" id="sizes">
+        <button data-s="512" aria-pressed="false">512</button>
+        <button data-s="1024" aria-pressed="false">1K</button>
+        <button data-s="2048" aria-pressed="true">2K</button>
+        <button data-s="4096" aria-pressed="false">4K</button>
+      </div>
+      <button class="b go" id="save" title="Save PNG" aria-label="Save PNG"></button>
+    </div>
+  </main>
+  <aside class="panel" id="panel">
+    <div class="presets" id="presets"></div>
+    <div class="chips" id="chips"></div>
+    <div class="grp" id="lightCtl"></div>
+    <div class="grp" id="matCtl"></div>
+    <div class="grp" id="envCtl"></div>
+    <div class="grp" id="outCtl"></div>
+  </aside>
+</div>
+<script>
+/**
+ * Matcap Generator
+ * --------------------------------------------------------------------------
+ * Clean Architectural Implementation
+ *
+ * Architecture Layers:
+ * 1. CONFIGURATION & CONSTANTS
+ * 2. MATHEMATICAL & COLOR UTILITIES (MathUtils, ColorUtils)
+ * 3. PROCEDURAL GEOMETRY (GeometryBuilder)
+ * 4. SHADER SOURCES & DOCUMENTATION (ShaderSources)
+ * 5. WEBGL RENDERING SUBSYSTEM (ShaderProgram, RenderTarget, MeshBuffer, WebGLRenderer)
+ * 6. STATE & HISTORY SUBSYSTEM (StateStore, HistoryManager)
+ * 7. PRESETS & PROCEDURAL GENERATOR (PresetRepository, ProceduralGenerator)
+ * 8. UI & INTERACTION CONTROLLERS (DOM, IconCatalog, Controllers)
+ * 9. APPLICATION COORDINATOR & LIFECYCLE (MatcapApp)
+ * --------------------------------------------------------------------------
+ */
+
+(() => {
+  "use strict";
+
+  /* ==========================================================================
+     1. CONFIGURATION & CONSTANTS
+     ========================================================================== */
+  const CONFIG = {
+    VIEWPORT_EXT: 1.35,
+    MAX_LIGHTS: 8,
+    MIN_LIGHTS: 2,
+    MAX_HISTORY_DEPTH: 120,
+    DEFAULT_RESOLUTION: 2048,
+    OFFSCREEN_TARGET_SIZE: 768,
+    PRESET_THUMB_SIZE: 112,
+    STORAGE_KEY: "matcap-state",
+    MAX_HANDLE_RADIUS: 1.3,
+    MESH_AUTO_ROTATION_SPEED: 0.004,
+    ORBIT_SENSITIVITY: 0.01,
+    MIN_PITCH: -1.5,
+    MAX_PITCH: 1.5,
+  };
+
+  /* ==========================================================================
+     2. MATHEMATICAL & COLOR UTILITIES
+     ========================================================================== */
+  class MathUtils {
+    static clamp(value, min, max) {
+      return Math.min(max, Math.max(min, value));
+    }
+
+    static format(value, step) {
+      return step >= 1 ? String(Math.round(value)) : value.toFixed(step >= 0.1 ? 1 : 2);
+    }
+
+    static createRotationMatrix3x3(yaw, pitch) {
+      const cy = Math.cos(yaw);
+      const sy = Math.sin(yaw);
+      const cx = Math.cos(pitch);
+      const sx = Math.sin(pitch);
+
+      // Ry around Y axis, Rx around X axis
+      const Ry = [
+        cy,  0, sy,
+        0,   1, 0,
+        -sy, 0, cy,
+      ];
+      const Rx = [
+        1, 0,   0,
+        0, cx, -sx,
+        0, sx,  cx,
+      ];
+
+      // Matrix product M = Rx * Ry
+      const M = new Array(9).fill(0);
+      for (let i = 0; i < 3; i++) {
+        for (let j = 0; j < 3; j++) {
+          for (let k = 0; k < 3; k++) {
+            M[i * 3 + j] += Rx[i * 3 + k] * Ry[k * 3 + j];
+          }
+        }
+      }
+
+      // Convert to OpenGL column-major Float32Array
+      return new Float32Array([
+        M[0], M[3], M[6],
+        M[1], M[4], M[7],
+        M[2], M[5], M[8],
+      ]);
+    }
+  }
+
+  class ColorUtils {
+    static hexToLinear(hex) {
+      const num = parseInt(hex.slice(1), 16);
+      const r = (num >> 16) & 255;
+      const g = (num >> 8) & 255;
+      const b = num & 255;
+      return [r, g, b].map((val) => {
+        const s = val / 255;
+        return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+      });
+    }
+
+    static hslToHex(h, s, l) {
+      const normalizedH = ((h % 360) + 360) % 360;
+      const k = (n) => (n + normalizedH / 30) % 12;
+      const a = s * Math.min(l, 1 - l);
+      const f = (n) => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+      return (
+        "#" +
+        [f(0), f(8), f(4)]
+          .map((v) => Math.round(v * 255).toString(16).padStart(2, "0"))
+          .join("")
+      );
+    }
+
+    static calculateLightDirection(light) {
+      const r = Math.hypot(light.x, light.y);
+      const z = r <= 1 ? Math.sqrt(1 - r * r) : -(r - 1) * 2.5;
+      const len = Math.hypot(light.x, light.y, z) || 1;
+      return [light.x / len, light.y / len, z / len];
+    }
+  }
+
+  /* ==========================================================================
+     3. PROCEDURAL GEOMETRY
+     ========================================================================== */
+  class GeometryBuilder {
+    static createTorusKnot(p = 2, q = 3, majorRadius = 0.55, minorRadius = 0.2, tubularSegments = 320, radialSegments = 40) {
+      const positions = [];
+      const normals = [];
+      const indices = [];
+
+      const getCurvePoint = (u) => {
+        const cosU = Math.cos(u);
+        const sinU = Math.sin(u);
+        const qOverP_u = (q / p) * u;
+        const cosQP = Math.cos(qOverP_u);
+        return [
+          majorRadius * (2 + cosQP) * 0.5 * cosU,
+          majorRadius * (2 + cosQP) * sinU * 0.5,
+          majorRadius * Math.sin(qOverP_u) * 0.5,
+        ];
+      };
+
+      const subtract = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+      const cross = (a, b) => [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+      ];
+      const normalize = (v) => {
+        const len = Math.hypot(v[0], v[1], v[2]) || 1;
+        return [v[0] / len, v[1] / len, v[2] / len];
+      };
+
+      for (let i = 0; i <= tubularSegments; i++) {
+        const u = (i / tubularSegments) * p * Math.PI * 2;
+        const p1 = getCurvePoint(u);
+        const p2 = getCurvePoint(u + 0.01);
+        const tangent = subtract(p2, p1);
+        let normal = [p2[0] + p1[0], p2[1] + p1[1], p2[2] + p1[2]];
+        let binormal = cross(tangent, normal);
+        normal = cross(binormal, tangent);
+        binormal = normalize(binormal);
+        normal = normalize(normal);
+
+        for (let j = 0; j <= radialSegments; j++) {
+          const v = (j / radialSegments) * Math.PI * 2;
+          const cosV = -minorRadius * Math.cos(v);
+          const sinV = minorRadius * Math.sin(v);
+          const x = p1[0] + cosV * normal[0] + sinV * binormal[0];
+          const y = p1[1] + cosV * normal[1] + sinV * binormal[1];
+          const z = p1[2] + cosV * normal[2] + sinV * binormal[2];
+          positions.push(x, y, z);
+          const n = normalize([x - p1[0], y - p1[1], z - p1[2]]);
+          normals.push(n[0], n[1], n[2]);
+        }
+      }
+
+      for (let i = 0; i < tubularSegments; i++) {
+        for (let j = 0; j < radialSegments; j++) {
+          const a = (radialSegments + 1) * i + j;
+          const b = (radialSegments + 1) * (i + 1) + j;
+          const c = (radialSegments + 1) * (i + 1) + j + 1;
+          const d = (radialSegments + 1) * i + j + 1;
+          indices.push(a, b, d, b, c, d);
+        }
+      }
+
+      return {
+        P: new Float32Array(positions),
+        N: new Float32Array(normals),
+        I: new Uint32Array(indices),
+      };
+    }
+  }
+
+  /* ==========================================================================
+     4. GLSL SHADER SOURCES
+     ========================================================================== */
+  const ShaderSources = {
+    VERTEX_QUAD: `#version 300 es
+      out vec2 vP;
+      void main() {
+        vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
+        vP = p * 2.0 - 1.0;
+        gl_Position = vec4(vP, 0.0, 1.0);
+      }
+    `,
+
+    FRAGMENT_MATCAP: `#version 300 es
+      precision highp float;
+
+      in vec2 vP;
+      out vec4 oC;
+
+      uniform float uExt;
+      uniform float uCrop;
+      uniform float uPx;
+      uniform float uPremul;
+      uniform float uSeed;
+      uniform float uSat;
+
+      uniform vec3 uAlb;
+      uniform vec3 uTop;
+      uniform vec3 uMid;
+      uniform vec3 uBot;
+
+      uniform vec4 uM;   // x: metallic, y: roughness, z: clearcoat, w: rim
+      uniform vec4 uE;   // x: edge,     y: env,       z: exposure,  w: contrast
+      uniform int uN;
+
+      uniform vec3 uLd[8];
+      uniform vec3 uLc[8];
+      uniform vec4 uLp[8];
+
+      vec3 envC(vec3 d, float b) {
+        float t = d.y;
+        float w = smoothstep(-b, b, t);
+        vec3 sky = mix(uMid, uTop, clamp(t * 1.4, 0.0, 1.0));
+        vec3 gr  = mix(uMid, uBot, clamp(-t * 1.4, 0.0, 1.0));
+        return mix(gr, sky, w);
+      }
+
+      float boxL(vec3 R, vec3 L, vec4 p, float soft) {
+        float d = dot(R, L);
+        if (d <= 0.02) return 0.0;
+        vec3 up = abs(L.y) < 0.97 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+        vec3 T = normalize(cross(up, L));
+        vec3 B = cross(L, T);
+        vec2 q = vec2(dot(R, T), dot(R, B)) / d;
+        q /= p.x * vec2(p.y, 1.0);
+        float dist = mix(length(q), max(abs(q.x), abs(q.y)), p.w);
+        float s = clamp(soft, 0.001, 0.98);
+        return (1.0 - smoothstep(1.0 - s, 1.0 + s, dist)) * smoothstep(0.02, 0.25, d);
+      }
+
+      float hash(vec2 p) {
+        vec3 q = fract(vec3(p.xyx) * 0.1031);
+        q += dot(q, q.yzx + 33.33);
+        return fract((q.x + q.y) * q.z);
+      }
+
+      void main() {
+        vec2 p = vP * uExt;
+        float r = length(p);
+        vec2 pc = r > 1.0 ? p / r : p;
+        float z = sqrt(max(0.0, 1.0 - dot(pc, pc)));
+        vec3 N = normalize(vec3(pc, max(z, 0.0001)));
+
+        float a = 1.0;
+        if (uCrop > 0.5) {
+          a = clamp((1.0 - r) / uPx + 0.5, 0.0, 1.0);
+        }
+
+        float NV = clamp(N.z, 0.0, 1.0);
+        vec3 R = reflect(vec3(0.0, 0.0, -1.0), N);
+
+        float metal = uM.x;
+        float rough = uM.y;
+        float coat  = uM.z;
+        float rim   = uM.w;
+
+        vec3 F0 = mix(vec3(0.04), uAlb, metal);
+        float fr = pow(1.0 - NV, 5.0);
+        vec3 F = F0 + (1.0 - F0) * fr * (1.0 - rough * 0.6);
+        float b = 0.02 + rough * 1.1;
+        vec3 diffC = uAlb * (1.0 - metal);
+        vec3 col = diffC * envC(N, 1.0) * uE.y * 0.9 + F * envC(R, b) * uE.y;
+
+        float fg = 1.0 + 3.0 * pow(1.0 - NV, 3.0);
+        vec3 Fl = mix(vec3(0.2) * fg, F, metal);
+
+        for (int i = 0; i < 8; i++) {
+          if (i >= uN) break;
+          vec3 Ld = uLd[i];
+          vec3 lc = uLc[i];
+          vec4 lp = uLp[i];
+          float w = clamp((dot(N, Ld) + 0.5) / 1.5, 0.0, 1.0);
+          col += diffC * lc * w * 0.1;
+          col += Fl * lc * boxL(R, Ld, lp, lp.z + rough * 0.9) * 3.0;
+          col += vec3(0.25 * fg) * lc * boxL(R, Ld, lp, lp.z * 0.35 + 0.015) * 3.0 * coat;
+        }
+
+        col += rim * pow(1.0 - NV, 3.0) * mix(uTop, vec3(1.0), 0.5) * uE.y * 1.2;
+        col *= 1.0 - uE.x * smoothstep(0.5, 1.0, min(r, 1.0));
+        col *= exp2(uE.z);
+
+        // ACES Filmic Tone Mapping approximation
+        col = clamp((col * (2.51 * col + 0.03)) / (col * (2.43 * col + 0.59) + 0.14), 0.0, 1.0);
+
+        // Linear to sRGB color space transfer
+        col = mix(col * 12.92, 1.055 * pow(col, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), col));
+
+        // Contrast adjustment
+        col = (col - 0.5) * uE.w + 0.5;
+
+        // Saturation adjustment
+        float l = dot(col, vec3(0.2126, 0.7152, 0.0722));
+        col = mix(vec3(l), col, uSat);
+
+        // High quality dithering to eliminate 8-bit banding
+        col += (hash(gl_FragCoord.xy + uSeed) - 0.5) / 255.0;
+        col = clamp(col, 0.0, 1.0);
+
+        oC = uPremul > 0.5 ? vec4(col * a, a) : vec4(col, a);
+      }
+    `,
+
+    VERTEX_MESH: `#version 300 es
+      in vec3 aP;
+      in vec3 aN;
+      uniform mat3 uR;
+      uniform float uS;
+      out vec3 vN;
+      void main() {
+        vec3 p = uR * aP;
+        vN = uR * aN;
+        gl_Position = vec4(p.xy * uS, -p.z * uS * 0.2, 1.0);
+      }
+    `,
+
+    FRAGMENT_MESH: `#version 300 es
+      precision highp float;
+      in vec3 vN;
+      uniform sampler2D uT;
+      out vec4 o;
+      void main() {
+        vec3 n = normalize(vN);
+        o = vec4(texture(uT, n.xy * 0.5 + 0.5).rgb, 1.0);
+      }
+    `,
+  };
+
+  /* ==========================================================================
+     5. WEBGL RENDERING SUBSYSTEM
+     ========================================================================== */
+  class ShaderProgram {
+    constructor(gl, vertexSource, fragmentSource) {
+      this.gl = gl;
+      this.uniformLocationCache = new Map();
+      this.program = this._compileAndLink(vertexSource, fragmentSource);
+    }
+
+    _compileShader(type, source) {
+      const shader = this.gl.createShader(type);
+      this.gl.shaderSource(shader, source);
+      this.gl.compileShader(shader);
+      if (!this.gl.getShaderParameter(shader, this.gl.COMPILE_STATUS)) {
+        const error = this.gl.getShaderInfoLog(shader);
+        this.gl.deleteShader(shader);
+        throw new Error(`Shader compilation error: ${error}`);
+      }
+      return shader;
+    }
+
+    _compileAndLink(vsSource, fsSource) {
+      const vs = this._compileShader(this.gl.VERTEX_SHADER, vsSource);
+      const fs = this._compileShader(this.gl.FRAGMENT_SHADER, fsSource);
+      const program = this.gl.createProgram();
+      this.gl.attachShader(program, vs);
+      this.gl.attachShader(program, fs);
+      this.gl.linkProgram(program);
+      this.gl.deleteShader(vs);
+      this.gl.deleteShader(fs);
+
+      if (!this.gl.getProgramParameter(program, this.gl.LINK_STATUS)) {
+        const error = this.gl.getProgramInfoLog(program);
+        this.gl.deleteProgram(program);
+        throw new Error(`Program link error: ${error}`);
+      }
+      return program;
+    }
+
+    use() {
+      this.gl.useProgram(this.program);
+    }
+
+    getUniformLocation(name) {
+      if (!this.uniformLocationCache.has(name)) {
+        this.uniformLocationCache.set(name, this.gl.getUniformLocation(this.program, name));
+      }
+      return this.uniformLocationCache.get(name);
+    }
+
+    setFloat(name, value) {
+      const loc = this.getUniformLocation(name);
+      if (loc !== null) this.gl.uniform1f(loc, value);
+    }
+
+    setInt(name, value) {
+      const loc = this.getUniformLocation(name);
+      if (loc !== null) this.gl.uniform1i(loc, value);
+    }
+
+    setVec3(name, x, y, z) {
+      const loc = this.getUniformLocation(name);
+      if (loc !== null) {
+        if (Array.isArray(x) || x instanceof Float32Array) {
+          this.gl.uniform3fv(loc, x);
+        } else {
+          this.gl.uniform3f(loc, x, y, z);
+        }
+      }
+    }
+
+    setVec4(name, x, y, z, w) {
+      const loc = this.getUniformLocation(name);
+      if (loc !== null) {
+        if (Array.isArray(x) || x instanceof Float32Array) {
+          this.gl.uniform4fv(loc, x);
+        } else {
+          this.gl.uniform4f(loc, x, y, z, w);
+        }
+      }
+    }
+
+    setMat3(name, matrixArray) {
+      const loc = this.getUniformLocation(name);
+      if (loc !== null) this.gl.uniformMatrix3fv(loc, false, matrixArray);
+    }
+
+    setVec3Array(name, array) {
+      const loc = this.getUniformLocation(name);
+      if (loc !== null) this.gl.uniform3fv(loc, array);
+    }
+
+    setVec4Array(name, array) {
+      const loc = this.getUniformLocation(name);
+      if (loc !== null) this.gl.uniform4fv(loc, array);
+    }
+
+    dispose() {
+      if (this.program) {
+        this.gl.deleteProgram(this.program);
+        this.program = null;
+      }
+    }
+  }
+
+  class RenderTarget {
+    constructor(gl, size) {
+      this.gl = gl;
+      this.size = size;
+
+      this.texture = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, this.texture);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, size, size, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+      this.framebuffer = gl.createFramebuffer();
+      gl.bindFramebuffer(gl.FRAMEBUFFER, this.framebuffer);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.texture, 0);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    }
+
+    bind() {
+      this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.framebuffer);
+      this.gl.viewport(0, 0, this.size, this.size);
+    }
+
+    unbind() {
+      this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+    }
+
+    dispose() {
+      if (this.framebuffer) {
+        this.gl.deleteFramebuffer(this.framebuffer);
+        this.framebuffer = null;
+      }
+      if (this.texture) {
+        this.gl.deleteTexture(this.texture);
+        this.texture = null;
+      }
+    }
+  }
+
+  class MeshBuffer {
+    constructor(gl, geometry, shaderProgram) {
+      this.gl = gl;
+      this.indexCount = geometry.I.length;
+
+      this.vao = gl.createVertexArray();
+      gl.bindVertexArray(this.vao);
+
+      this.positionBuffer = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, geometry.P, gl.STATIC_DRAW);
+      const posLoc = gl.getAttribLocation(shaderProgram.program, "aP");
+      gl.enableVertexAttribArray(posLoc);
+      gl.vertexAttribPointer(posLoc, 3, gl.FLOAT, false, 0, 0);
+
+      this.normalBuffer = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.normalBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, geometry.N, gl.STATIC_DRAW);
+      const normLoc = gl.getAttribLocation(shaderProgram.program, "aN");
+      gl.enableVertexAttribArray(normLoc);
+      gl.vertexAttribPointer(normLoc, 3, gl.FLOAT, false, 0, 0);
+
+      this.indexBuffer = gl.createBuffer();
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
+      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, geometry.I, gl.STATIC_DRAW);
+
+      gl.bindVertexArray(null);
+    }
+
+    draw() {
+      this.gl.bindVertexArray(this.vao);
+      this.gl.drawElements(this.gl.TRIANGLES, this.indexCount, this.gl.UNSIGNED_INT, 0);
+      this.gl.bindVertexArray(null);
+    }
+
+    dispose() {
+      if (this.vao) this.gl.deleteVertexArray(this.vao);
+      if (this.positionBuffer) this.gl.deleteBuffer(this.positionBuffer);
+      if (this.normalBuffer) this.gl.deleteBuffer(this.normalBuffer);
+      if (this.indexBuffer) this.gl.deleteBuffer(this.indexBuffer);
+    }
+  }
+
+  class WebGLRenderer {
+    constructor(canvas) {
+      this.canvas = canvas;
+      this.gl = canvas.getContext("webgl2", {
+        antialias: true,
+        alpha: true,
+        premultipliedAlpha: true,
+      });
+      if (!this.gl) {
+        throw new Error("WebGL 2 is not available");
+      }
+
+      this.matcapProgram = new ShaderProgram(this.gl, ShaderSources.VERTEX_QUAD, ShaderSources.FRAGMENT_MATCAP);
+      this.meshProgram = new ShaderProgram(this.gl, ShaderSources.VERTEX_MESH, ShaderSources.FRAGMENT_MESH);
+
+      this.quadVao = this.gl.createVertexArray();
+
+      const knotGeometry = GeometryBuilder.createTorusKnot(2, 3, 0.55, 0.2, 320, 40);
+      this.meshBuffer = new MeshBuffer(this.gl, knotGeometry, this.meshProgram);
+
+      this.offscreenTarget = new RenderTarget(this.gl, CONFIG.OFFSCREEN_TARGET_SIZE);
+
+      // Pre-allocated arrays to avoid memory churn during animation
+      this.lightDirBuffer = new Float32Array(24);
+      this.lightColBuffer = new Float32Array(24);
+      this.lightParamBuffer = new Float32Array(32);
+    }
+
+    drawMatcapQuad(state, options) {
+      const gl = this.gl;
+      const prog = this.matcapProgram;
+      prog.use();
+
+      prog.setFloat("uExt", options.ext);
+      prog.setFloat("uCrop", options.crop);
+      prog.setFloat("uPx", options.px);
+      prog.setFloat("uPremul", options.premul);
+      prog.setFloat("uSeed", options.seed || 0);
+      prog.setFloat("uSat", state.sat);
+
+      prog.setVec3("uAlb", ColorUtils.hexToLinear(state.alb));
+      prog.setVec3("uTop", ColorUtils.hexToLinear(state.top));
+      prog.setVec3("uMid", ColorUtils.hexToLinear(state.mid));
+      prog.setVec3("uBot", ColorUtils.hexToLinear(state.bot));
+
+      prog.setVec4("uM", state.metal, state.rough, state.coat, state.rim);
+      prog.setVec4("uE", state.edge, state.env, state.exp, state.con);
+
+      this.lightDirBuffer.fill(0);
+      this.lightColBuffer.fill(0);
+      this.lightParamBuffer.fill(0);
+
+      state.lights.forEach((light, i) => {
+        this.lightDirBuffer.set(ColorUtils.calculateLightDirection(light), i * 3);
+        const linearCol = ColorUtils.hexToLinear(light.col);
+        this.lightColBuffer.set([
+          linearCol[0] * light.int,
+          linearCol[1] * light.int,
+          linearCol[2] * light.int,
+        ], i * 3);
+        this.lightParamBuffer.set([light.size, light.asp, light.soft, light.shape], i * 4);
+      });
+
+      prog.setInt("uN", state.lights.length);
+      prog.setVec3Array("uLd[0]", this.lightDirBuffer);
+      prog.setVec3Array("uLc[0]", this.lightColBuffer);
+      prog.setVec4Array("uLp[0]", this.lightParamBuffer);
+
+      gl.bindVertexArray(this.quadVao);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      gl.bindVertexArray(null);
+    }
+
+    renderDiskPreview(state, width, height) {
+      const gl = this.gl;
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.viewport(0, 0, width, height);
+      gl.disable(gl.DEPTH_TEST);
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+
+      this.drawMatcapQuad(state, {
+        ext: CONFIG.VIEWPORT_EXT,
+        crop: 1,
+        px: (2 * CONFIG.VIEWPORT_EXT) / width,
+        premul: 1,
+        seed: 0,
+      });
+    }
+
+    updateMeshMaterialTexture(state) {
+      this.offscreenTarget.bind();
+      this.drawMatcapQuad(state, {
+        ext: 1,
+        crop: 0,
+        px: 2 / this.offscreenTarget.size,
+        premul: 0,
+        seed: 0,
+      });
+      this.offscreenTarget.unbind();
+    }
+
+    renderMeshPreview(state, width, height, rotationMatrix) {
+      const gl = this.gl;
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.viewport(0, 0, width, height);
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+      gl.enable(gl.DEPTH_TEST);
+
+      this.meshProgram.use();
+      this.meshProgram.setMat3("uR", rotationMatrix);
+      this.meshProgram.setFloat("uS", 0.88);
+
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, this.offscreenTarget.texture);
+      this.meshProgram.setInt("uT", 0);
+
+      this.meshBuffer.draw();
+    }
+
+    renderPixels(state, size, cropAlpha) {
+      const gl = this.gl;
+      const target = new RenderTarget(gl, size);
+
+      gl.bindFramebuffer(gl.FRAMEBUFFER, target.framebuffer);
+      gl.viewport(0, 0, size, size);
+      gl.disable(gl.BLEND);
+
+      this.drawMatcapQuad(state, {
+        ext: 1,
+        crop: cropAlpha ? 1 : 0,
+        px: 2 / size,
+        premul: 0,
+        seed: 7,
+      });
+
+      const buffer = new Uint8Array(size * size * 4);
+      gl.readPixels(0, 0, size, size, gl.RGBA, gl.UNSIGNED_BYTE, buffer);
+
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      target.dispose();
+
+      // Flip vertically (OpenGL bottom-left to HTML canvas top-left)
+      const flipped = new Uint8ClampedArray(size * size * 4);
+      const rowBytes = size * 4;
+      for (let y = 0; y < size; y++) {
+        flipped.set(
+          buffer.subarray((size - 1 - y) * rowBytes, (size - y) * rowBytes),
+          y * rowBytes
+        );
+      }
+      return flipped;
+    }
+
+    getMaxSupportedTextureSize() {
+      const gl = this.gl;
+      return Math.min(
+        gl.getParameter(gl.MAX_TEXTURE_SIZE),
+        gl.getParameter(gl.MAX_RENDERBUFFER_SIZE)
+      );
+    }
+  }
+
+  /* ==========================================================================
+     6. STATE & HISTORY SUBSYSTEM
+     ========================================================================= */
+  const BASE_MATERIAL_STATE = Object.freeze({
+    alb: "#c9b6a4",
+    metal: 0,
+    rough: 0.85,
+    coat: 0,
+    rim: 0.35,
+    edge: 0.3,
+    top: "#e6edf7",
+    mid: "#9a948e",
+    bot: "#3a3633",
+    env: 0.8,
+    exp: 0.2,
+    con: 1,
+    sat: 1,
+    sel: 0,
+    lights: [],
+  });
+
+  const createLight = (x, y, col, int, size, asp, soft, shape) => ({
+    x, y, col, int, size, asp, soft, shape,
+  });
+
+  const createPreset = (overrides) => {
+    return Object.assign(JSON.parse(JSON.stringify(BASE_MATERIAL_STATE)), overrides);
+  };
+
+  const PRESETS = [
+    createPreset({
+      lights: [
+        createLight(-0.55, 0.6, "#fff3e4", 2.2, 0.9, 1, 0.8, 0),
+        createLight(0.75, -0.2, "#cfe0ff", 0.8, 0.7, 1, 0.9, 0),
+      ],
+    }),
+    createPreset({
+      alb: "#e8ecf2",
+      metal: 1,
+      rough: 0.04,
+      coat: 0,
+      rim: 0,
+      edge: 0,
+      top: "#8fb4e8",
+      mid: "#f4f4f4",
+      bot: "#101114",
+      env: 1,
+      exp: 0,
+      con: 1.1,
+      lights: [
+        createLight(-0.5, 0.62, "#ffffff", 4, 0.55, 2.2, 0.08, 1),
+        createLight(0.7, 0.1, "#ffffff", 2.5, 0.25, 0.5, 0.1, 1),
+        createLight(0.1, -0.75, "#ffd9b0", 1.5, 0.7, 2.5, 0.15, 1),
+      ],
+    }),
+    createPreset({
+      alb: "#e8b64a",
+      metal: 1,
+      rough: 0.22,
+      coat: 0,
+      rim: 0.1,
+      edge: 0.1,
+      top: "#ffeccc",
+      mid: "#d9c7a0",
+      bot: "#2a1d10",
+      env: 1,
+      exp: 0,
+      con: 1.05,
+      lights: [
+        createLight(-0.55, 0.55, "#fff6e6", 3.2, 0.7, 1.6, 0.35, 1),
+        createLight(0.7, -0.25, "#ffe2b0", 1.6, 0.6, 1, 0.5, 0),
+      ],
+    }),
+    createPreset({
+      alb: "#f1e9e6",
+      metal: 0.25,
+      rough: 0.28,
+      coat: 0.8,
+      rim: 0.5,
+      edge: 0.1,
+      top: "#ffe4f0",
+      mid: "#c9d8ee",
+      bot: "#5a4b6a",
+      env: 0.9,
+      exp: 0.1,
+      con: 1,
+      lights: [
+        createLight(-0.5, 0.55, "#ffffff", 3, 0.7, 1.3, 0.4, 1),
+        createLight(0.65, -0.35, "#bfe3ff", 1.6, 0.6, 1, 0.5, 0),
+      ],
+    }),
+    createPreset({
+      alb: "#4fa583",
+      metal: 0,
+      rough: 0.3,
+      coat: 0.7,
+      rim: 0.5,
+      edge: 0.35,
+      top: "#dff5ea",
+      mid: "#6d9a88",
+      bot: "#14241d",
+      env: 0.8,
+      exp: 0.1,
+      con: 1.05,
+      lights: [
+        createLight(-0.45, 0.55, "#ffffff", 3, 0.6, 1, 0.35, 1),
+        createLight(0.7, 0.2, "#c8ffe6", 1.2, 0.8, 1, 0.7, 0),
+      ],
+    }),
+    createPreset({
+      alb: "#17181c",
+      metal: 0,
+      rough: 0.18,
+      coat: 1,
+      rim: 0.8,
+      edge: 0,
+      top: "#5a6a8a",
+      mid: "#23252c",
+      bot: "#050506",
+      env: 0.7,
+      exp: 0.1,
+      con: 1.15,
+      lights: [
+        createLight(-0.62, 0.5, "#ffffff", 5, 0.35, 0.35, 0.1, 1),
+        createLight(0.72, -0.1, "#9fc0ff", 3, 0.25, 0.3, 0.12, 1),
+      ],
+    }),
+    createPreset({
+      alb: "#dc835d",
+      metal: 1,
+      rough: 0.45,
+      coat: 0,
+      rim: 0.1,
+      edge: 0.15,
+      top: "#f6e1d3",
+      mid: "#a77a62",
+      bot: "#2d1a13",
+      env: 1,
+      exp: 0,
+      con: 1.05,
+      lights: [
+        createLight(-0.5, 0.5, "#fff2e6", 3, 0.8, 1, 0.7, 0),
+        createLight(0.6, -0.4, "#ffd0b0", 1.4, 0.7, 1.5, 0.8, 1),
+      ],
+    }),
+    createPreset({
+      alb: "#d9dadd",
+      metal: 0,
+      rough: 0.5,
+      coat: 0.3,
+      rim: 0.2,
+      edge: 0.3,
+      top: "#e9edf4",
+      mid: "#8e9097",
+      bot: "#2f3034",
+      env: 0.7,
+      exp: -0.1,
+      con: 1.08,
+      lights: [
+        createLight(-0.6, 0.55, "#ffffff", 1.5, 0.7, 1.2, 0.5, 1),
+        createLight(0.7, 0.25, "#fff4e8", 0.8, 0.6, 1, 0.7, 0),
+        createLight(0, -0.7, "#dfeaff", 0.6, 0.8, 2, 0.8, 1),
+      ],
+    }),
+  ];
+
+  class StateStore {
+    constructor(initialState) {
+      this.state = this._clone(initialState);
+      this.listeners = new Set();
+    }
+
+    _clone(obj) {
+      return JSON.parse(JSON.stringify(obj));
+    }
+
+    getState() {
+      return this.state;
+    }
+
+    getSnapshot() {
+      return JSON.stringify(this.state);
+    }
+
+    setState(newState, notify = true) {
+      this.state = this._clone(newState);
+      if (notify) this.notify("SET_STATE");
+    }
+
+    loadSnapshot(jsonString, notify = true) {
+      this.state = JSON.parse(jsonString);
+      if (notify) this.notify("LOAD_SNAPSHOT");
+    }
+
+    getSelectedLight() {
+      return this.state.lights[this.state.sel] || null;
+    }
+
+    setSelectedLightProperty(key, value, notify = true) {
+      const light = this.getSelectedLight();
+      if (light) {
+        light[key] = value;
+        if (notify) this.notify("LIGHT_PROP_CHANGED");
+      }
+    }
+
+    setProperty(key, value, notify = true) {
+      this.state[key] = value;
+      if (notify) this.notify("PROP_CHANGED");
+    }
+
+    selectLight(index, notify = true) {
+      if (index >= 0 && index < this.state.lights.length) {
+        this.state.sel = index;
+        if (notify) this.notify("LIGHT_SELECTED");
+      }
+    }
+
+    addLight(light, notify = true) {
+      if (this.state.lights.length >= CONFIG.MAX_LIGHTS) return false;
+      this.state.lights.push(light);
+      this.state.sel = this.state.lights.length - 1;
+      if (notify) this.notify("LIGHT_ADDED");
+      return true;
+    }
+
+    removeSelectedLight(notify = true) {
+      if (this.state.lights.length < CONFIG.MIN_LIGHTS) return false;
+      this.state.lights.splice(this.state.sel, 1);
+      this.state.sel = Math.min(this.state.sel, this.state.lights.length - 1);
+      if (notify) this.notify("LIGHT_REMOVED");
+      return true;
+    }
+
+    subscribe(listener) {
+      this.listeners.add(listener);
+      return () => this.listeners.delete(listener);
+    }
+
+    notify(detail = null) {
+      for (const listener of this.listeners) {
+        listener(this.state, detail);
+      }
+    }
+  }
+
+  class HistoryManager {
+    constructor(store, maxDepth = CONFIG.MAX_HISTORY_DEPTH, storageKey = CONFIG.STORAGE_KEY) {
+      this.store = store;
+      this.maxDepth = maxDepth;
+      this.storageKey = storageKey;
+      this.history = [];
+      this.currentIndex = -1;
+      this.changeListeners = new Set();
+    }
+
+    init() {
+      this.history = [this.store.getSnapshot()];
+      this.currentIndex = 0;
+      this.notify();
+    }
+
+    canUndo() {
+      return this.currentIndex > 0;
+    }
+
+    canRedo() {
+      return this.currentIndex < this.history.length - 1;
+    }
+
+    commit() {
+      const snapshot = this.store.getSnapshot();
+      if (snapshot === this.history[this.currentIndex]) return;
+
+      this.history.length = this.currentIndex + 1;
+      this.history.push(snapshot);
+      if (this.history.length > this.maxDepth) {
+        this.history.shift();
+      }
+      this.currentIndex = this.history.length - 1;
+      this.saveToStorage();
+      this.notify();
+    }
+
+    undo() {
+      if (!this.canUndo()) return;
+      this.currentIndex--;
+      this.store.loadSnapshot(this.history[this.currentIndex], true);
+      this.saveToStorage();
+      this.notify();
+    }
+
+    redo() {
+      if (!this.canRedo()) return;
+      this.currentIndex++;
+      this.store.loadSnapshot(this.history[this.currentIndex], true);
+      this.saveToStorage();
+      this.notify();
+    }
+
+    saveToStorage() {
+      try {
+        localStorage.setItem(this.storageKey, this.store.getSnapshot());
+      } catch (_) {}
+    }
+
+    loadFromStorage(defaultState) {
+      try {
+        const saved = localStorage.getItem(this.storageKey);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed && Array.isArray(parsed.lights) && parsed.lights.length) {
+            const merged = Object.assign(JSON.parse(JSON.stringify(defaultState)), parsed);
+            this.store.setState(merged, false);
+            return true;
+          }
+        }
+      } catch (_) {}
+      return false;
+    }
+
+    subscribe(listener) {
+      this.changeListeners.add(listener);
+      return () => this.changeListeners.delete(listener);
+    }
+
+    notify() {
+      const state = { canUndo: this.canUndo(), canRedo: this.canRedo() };
+      for (const listener of this.changeListeners) {
+        listener(state);
+      }
+    }
+  }
+
+  /* ==========================================================================
+     7. PRESETS & PROCEDURAL GENERATOR
+     ========================================================================== */
+  class ProceduralGenerator {
+    static _randomRange(min, max) {
+      return min + Math.random() * (max - min);
+    }
+
+    static randomize(store) {
+      const rnd = ProceduralGenerator._randomRange;
+      const baseHue = Math.random() * 360;
+      const isMetal = Math.random() < 0.4;
+      const metal = isMetal ? rnd(0.8, 1) : rnd(0, 0.15);
+      const numLights = 2 + Math.floor(Math.random() * 3);
+      const lights = [];
+
+      for (let i = 0; i < numLights; i++) {
+        const isKeyLight = i === 0;
+        const angle = isKeyLight ? rnd(1.7, 2.6) : rnd(-1, 5);
+        const radius = isKeyLight ? rnd(0.45, 0.8) : rnd(0.4, 0.95);
+        lights.push(
+          createLight(
+            +(Math.cos(angle) * radius).toFixed(3),
+            +(Math.sin(angle) * radius).toFixed(3),
+            ColorUtils.hslToHex(baseHue + rnd(-40, 40), rnd(0, 0.35), rnd(0.88, 1)),
+            +(isKeyLight ? rnd(2.5, 4.5) : rnd(0.8, 2.4)).toFixed(2),
+            +rnd(0.3, 1.1).toFixed(2),
+            +rnd(0.4, 2.2).toFixed(2),
+            +rnd(0.05, 0.6).toFixed(2),
+            Math.random() < 0.6 ? 1 : 0
+          )
+        );
+      }
+
+      const randomizedState = Object.assign({}, store.getState(), {
+        alb: ColorUtils.hslToHex(baseHue, rnd(0.1, 0.7), rnd(0.35, 0.75)),
+        metal: +metal.toFixed(2),
+        rough: +rnd(0.05, 0.8).toFixed(2),
+        coat: +(metal > 0.5 ? 0 : rnd(0, 1)).toFixed(2),
+        rim: +rnd(0, 0.7).toFixed(2),
+        edge: +rnd(0, 0.35).toFixed(2),
+        top: ColorUtils.hslToHex(baseHue + rnd(-30, 30), rnd(0.1, 0.5), rnd(0.75, 0.92)),
+        mid: ColorUtils.hslToHex(baseHue + rnd(-40, 40), rnd(0.05, 0.35), rnd(0.4, 0.65)),
+        bot: ColorUtils.hslToHex(baseHue + rnd(-20, 20), rnd(0.1, 0.4), rnd(0.06, 0.25)),
+        env: +rnd(0.6, 1.1).toFixed(2),
+        exp: 0.1,
+        con: +rnd(1, 1.15).toFixed(2),
+        sat: 1,
+        sel: 0,
+        lights,
+      });
+
+      store.setState(randomizedState);
+    }
+  }
+
+  /* ==========================================================================
+     8. UI & INTERACTION CONTROLLERS
+     ========================================================================== */
+  const IconCatalog = {
+    undo: '<path d="M3 9h11a6 6 0 0 1 0 12h-4"/><path d="M7 5 3 9l4 4"/>',
+    redo: '<path d="M21 9H10a6 6 0 0 0 0 12h4"/><path d="m17 5 4 4-4 4"/>',
+    dice: '<rect x="4" y="4" width="16" height="16" rx="3.5"/><circle cx="9" cy="9" r="1.1" fill="currentColor"/><circle cx="15" cy="15" r="1.1" fill="currentColor"/><circle cx="12" cy="12" r="1.1" fill="currentColor"/><circle cx="15" cy="9" r="1.1" fill="currentColor"/><circle cx="9" cy="15" r="1.1" fill="currentColor"/>',
+    cube: '<path d="m12 3 8 4.5v9L12 21l-8-4.5v-9z"/><path d="m12 12 8-4.5M12 12v9M12 12 4 7.5"/>',
+    disk: '<circle cx="12" cy="12" r="9"/><path d="M8 9a5 5 0 0 1 4-2.5"/>',
+    checker: '<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 12h16M12 4v16"/><path d="M4 4h8v8H4zM12 12h8v8h-8z" fill="currentColor" stroke="none"/>',
+    save: '<path d="M12 4v11M7 11l5 5 5-5M5 20h14"/>',
+    check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
+    metal: '<path d="M6 4h12l4 6-10 11L2 10z"/><path d="M2 10h20M9 4l3 6 3-6"/>',
+    rough: '<circle cx="7" cy="7" r="1.2" fill="currentColor"/><circle cx="14" cy="6" r="1.2" fill="currentColor"/><circle cx="18" cy="11" r="1.2" fill="currentColor"/><circle cx="10" cy="12" r="1.2" fill="currentColor"/><circle cx="5" cy="16" r="1.2" fill="currentColor"/><circle cx="14" cy="18" r="1.2" fill="currentColor"/><circle cx="19" cy="18" r="1.2" fill="currentColor"/>',
+    coat: '<path d="M12 3c4 5 6 8 6 11a6 6 0 0 1-12 0c0-3 2-6 6-11z"/><path d="M9.3 15a2.7 2.7 0 0 0 2 2.4"/>',
+    rim: '<circle cx="12" cy="12" r="8"/><path d="M17.7 6.3a8 8 0 0 1 0 11.4" stroke-width="3.4"/>',
+    edge: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.5"/>',
+    sun: '<circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6 7 7M17 17l1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4"/>',
+    size: '<path d="M4 9V4h5M20 15v5h-5M4 4l6 6M20 20l-6-6"/>',
+    aspect: '<rect x="3" y="8" width="18" height="8" rx="1.5"/><path d="M7 12h10M9 10l-2 2 2 2M15 10l2 2-2 2"/>',
+    soft: '<circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="6.5" stroke-dasharray="2.4 2.4"/><circle cx="12" cy="12" r="10" stroke-dasharray="1 3.4"/>',
+    square: '<rect x="4" y="4" width="16" height="16" rx="2"/>',
+    circle: '<circle cx="12" cy="12" r="8.5"/>',
+    trash: '<path d="M4 7h16M10 3h4M6 7l1 13h10l1-13M10 11v5M14 11v5"/>',
+    plus: '<path d="M12 5v14M5 12h14"/>',
+    horizon: '<path d="M3 16h18M7 16a5 5 0 0 1 10 0M12 4v3M5 8l2 2M19 8l-2 2"/>',
+    exposure: '<circle cx="12" cy="12" r="9"/><path d="M12 7v10M7 12h10"/>',
+    contrast: '<circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/>',
+    sat: '<path d="M12 3c4 5 6 8 6 11a6 6 0 0 1-12 0c0-3 2-6 6-11z"/><path d="M12 3c-4 5-6 8-6 11a6 6 0 0 0 6 6z" fill="currentColor"/>',
+  };
+
+  class DOM {
+    static find(selector, root = document) {
+      return root.querySelector(selector);
+    }
+
+    static create(tagName, className = "", innerHTML = null) {
+      const el = document.createElement(tagName);
+      if (className) el.className = className;
+      if (innerHTML !== null && innerHTML !== undefined) el.innerHTML = innerHTML;
+      return el;
+    }
+
+    static svg(iconKey) {
+      const pathContent = IconCatalog[iconKey] || "";
+      return `<svg viewBox="0 0 24 24" aria-hidden="true">${pathContent}</svg>`;
+    }
+
+    static createIconButton(iconKey, title, onClick, extraClass = "") {
+      const className = "b" + (extraClass ? " " + extraClass : "");
+      const btn = DOM.create("button", className, DOM.svg(iconKey));
+      btn.title = title;
+      btn.setAttribute("aria-label", title);
+      if (onClick) btn.addEventListener("click", onClick);
+      return btn;
+    }
+  }
+
+  class HandlesOverlayController {
+    constructor(container, viewElement, store, history, onLiveChange) {
+      this.container = container;
+      this.viewElement = viewElement;
+      this.store = store;
+      this.history = history;
+      this.onLiveChange = onLiveChange;
+      this.mode = "disk";
+    }
+
+    setMode(mode) {
+      this.mode = mode;
+      this.container.hidden = (mode !== "disk");
+    }
+
+    syncHandles() {
+      const state = this.store.getState();
+      if (this.container.children.length !== state.lights.length) {
+        this.buildHandles();
+      } else {
+        this.positionHandles();
+      }
+    }
+
+    buildHandles() {
+      this.container.innerHTML = "";
+      const state = this.store.getState();
+
+      state.lights.forEach((light, i) => {
+        const handle = DOM.create("button", "h" + (i === state.sel ? " on" : ""));
+        handle.style.background = light.col;
+        handle.setAttribute("aria-label", "Move light " + (i + 1));
+        handle.title = "Light " + (i + 1);
+        handle.dataset.i = String(i);
+
+        handle.addEventListener("pointerdown", (e) => {
+          e.preventDefault();
+          handle.setPointerCapture(e.pointerId);
+          if (this.store.getState().sel !== i) {
+            this.store.selectLight(i);
+          }
+        });
+
+        const onPointerMove = (e) => {
+          if (!(e.buttons & 1)) return;
+          const rect = this.viewElement.getBoundingClientRect();
+          let x = ((e.clientX - rect.left) / rect.width * 2 - 1) * CONFIG.VIEWPORT_EXT;
+          let y = (1 - (e.clientY - rect.top) / rect.height * 2) * CONFIG.VIEWPORT_EXT;
+          const dist = Math.hypot(x, y);
+          if (dist > CONFIG.MAX_HANDLE_RADIUS) {
+            x *= CONFIG.MAX_HANDLE_RADIUS / dist;
+            y *= CONFIG.MAX_HANDLE_RADIUS / dist;
+          }
+          const targetLight = this.store.getState().lights[i];
+          if (targetLight) {
+            targetLight.x = +x.toFixed(3);
+            targetLight.y = +y.toFixed(3);
+            this.positionHandles();
+            this.onLiveChange(false);
+          }
+        };
+
+        handle.addEventListener("pointermove", onPointerMove);
+        handle.addEventListener("pointerup", () => this.history.commit());
+
+        handle.addEventListener("keydown", (e) => {
+          const directions = {
+            ArrowLeft: [-1, 0],
+            ArrowRight: [1, 0],
+            ArrowUp: [0, 1],
+            ArrowDown: [0, -1],
+          };
+          const delta = directions[e.key];
+          if (!delta) return;
+
+          e.preventDefault();
+          const step = e.shiftKey ? 0.08 : 0.02;
+          const targetLight = this.store.getState().lights[i];
+          if (!targetLight) return;
+
+          let x = targetLight.x + delta[0] * step;
+          let y = targetLight.y + delta[1] * step;
+          const dist = Math.hypot(x, y);
+          if (dist > CONFIG.MAX_HANDLE_RADIUS) {
+            x *= CONFIG.MAX_HANDLE_RADIUS / dist;
+            y *= CONFIG.MAX_HANDLE_RADIUS / dist;
+          }
+          targetLight.x = +x.toFixed(3);
+          targetLight.y = +y.toFixed(3);
+          this.positionHandles();
+          this.onLiveChange(false);
+        });
+
+        handle.addEventListener("keyup", (e) => {
+          if (e.key.startsWith("Arrow")) {
+            this.history.commit();
+          }
+        });
+
+        this.container.appendChild(handle);
+      });
+
+      this.positionHandles();
+    }
+
+    positionHandles() {
+      this.container.hidden = (this.mode !== "disk");
+      const state = this.store.getState();
+      const handles = [...this.container.children];
+
+      handles.forEach((handle, i) => {
+        const light = state.lights[i];
+        if (!light) return;
+        handle.style.left = ((light.x / CONFIG.VIEWPORT_EXT + 1) / 2 * 100) + "%";
+        handle.style.top = ((1 - light.y / CONFIG.VIEWPORT_EXT) / 2 * 100) + "%";
+        handle.style.background = light.col;
+        handle.classList.toggle("on", i === state.sel);
+      });
+    }
+  }
+
+  class OrbitViewController {
+    constructor(viewElement, onRotate) {
+      this.viewElement = viewElement;
+      this.onRotate = onRotate;
+      this.yaw = 0.6;
+      this.pitch = -0.25;
+      this.isDragging = false;
+      this.lastPointerPos = null;
+      this.enabled = false;
+
+      this._bindEvents();
+    }
+
+    setEnabled(enabled) {
+      this.enabled = enabled;
+    }
+
+    _bindEvents() {
+      this.viewElement.addEventListener("pointerdown", (e) => {
+        if (!this.enabled) return;
+        this.lastPointerPos = [e.clientX, e.clientY];
+        this.isDragging = true;
+        this.viewElement.setPointerCapture(e.pointerId);
+      });
+
+      this.viewElement.addEventListener("pointermove", (e) => {
+        if (!this.isDragging || !this.lastPointerPos || !this.enabled) return;
+        const dx = e.clientX - this.lastPointerPos[0];
+        const dy = e.clientY - this.lastPointerPos[1];
+        this.yaw += dx * CONFIG.ORBIT_SENSITIVITY;
+        this.pitch = MathUtils.clamp(
+          this.pitch + dy * CONFIG.ORBIT_SENSITIVITY,
+          CONFIG.MIN_PITCH,
+          CONFIG.MAX_PITCH
+        );
+        this.lastPointerPos = [e.clientX, e.clientY];
+        this.onRotate();
+      });
+
+      const handlePointerUp = () => {
+        this.lastPointerPos = null;
+        this.isDragging = false;
+        if (this.enabled) this.onRotate();
+      };
+
+      this.viewElement.addEventListener("pointerup", handlePointerUp);
+      this.viewElement.addEventListener("pointercancel", handlePointerUp);
+    }
+
+    getRotationMatrix() {
+      return MathUtils.createRotationMatrix3x3(this.yaw, this.pitch);
+    }
+
+    stepAutoRotation() {
+      this.yaw += CONFIG.MESH_AUTO_ROTATION_SPEED;
+    }
+  }
+
+  class InspectorController {
+    constructor(containers, store, history, onLiveChange, onChipRebuildNeeded) {
+      this.matContainer = DOM.find(containers.material);
+      this.envContainer = DOM.find(containers.environment);
+      this.outContainer = DOM.find(containers.output);
+      this.lightContainer = DOM.find(containers.light);
+      this.store = store;
+      this.history = history;
+      this.onLiveChange = onLiveChange;
+      this.onChipRebuildNeeded = onChipRebuildNeeded;
+      this.syncCallbacks = [];
+
+      this._buildMaterialControls();
+      this._buildEnvironmentControls();
+      this._buildOutputControls();
+      this._buildLightControls();
+    }
+
+    _createSlider(parent, config, getValue, setValue) {
+      const row = DOM.create(
+        "label",
+        "row",
+        `<span class="ic">${DOM.svg(config.i)}</span><input type="range" min="${config.min}" max="${config.max}" step="${config.step}" id="r-${config.k}" aria-label="${config.t}"><output></output>`
+      );
+      row.title = config.t;
+      const input = DOM.find("input", row);
+      const output = DOM.find("output", row);
+
+      const updateDisplay = () => {
+        const val = +input.value;
+        const percent = ((val - config.min) / (config.max - config.min)) * 100;
+        input.style.setProperty("--p", percent + "%");
+        output.textContent = MathUtils.format(val, config.step);
+      };
+
+      input.addEventListener("input", () => {
+        setValue(+input.value);
+        updateDisplay();
+        this.onLiveChange(true);
+      });
+
+      input.addEventListener("change", () => {
+        this.history.commit();
+      });
+
+      this.syncCallbacks.push(() => {
+        const val = getValue();
+        if (val !== undefined && val !== null) {
+          input.value = val;
+          updateDisplay();
+        }
+      });
+
+      parent.appendChild(row);
+    }
+
+    _createColorSwatch(config, getValue, setValue) {
+      const input = DOM.create("input", "sw");
+      input.type = "color";
+      input.title = config.t;
+      input.setAttribute("aria-label", config.t);
+
+      input.addEventListener("input", () => {
+        setValue(input.value);
+        if (config.isLightColor) {
+          this.onChipRebuildNeeded();
+        }
+        this.onLiveChange(true);
+      });
+
+      input.addEventListener("change", () => {
+        this.history.commit();
+      });
+
+      this.syncCallbacks.push(() => {
+        const val = getValue();
+        if (val) input.value = val;
+      });
+
+      return input;
+    }
+
+    _buildMaterialControls() {
+      const swatchRow = DOM.create("div", "swrow");
+      swatchRow.appendChild(
+        this._createColorSwatch(
+          { k: "alb", t: "Base color" },
+          () => this.store.getState().alb,
+          (val) => this.store.setProperty("alb", val)
+        )
+      );
+      this.matContainer.appendChild(swatchRow);
+
+      const materialSliders = [
+        { k: "metal", i: "metal", t: "Metallic", min: 0, max: 1, step: 0.01 },
+        { k: "rough", i: "rough", t: "Roughness", min: 0, max: 1, step: 0.01 },
+        { k: "coat", i: "coat", t: "Clear coat", min: 0, max: 1, step: 0.01 },
+        { k: "rim", i: "rim", t: "Rim light", min: 0, max: 1.5, step: 0.01 },
+        { k: "edge", i: "edge", t: "Edge darkening", min: 0, max: 1, step: 0.01 },
+      ];
+
+      materialSliders.forEach((cfg) => {
+        this._createSlider(
+          this.matContainer,
+          cfg,
+          () => this.store.getState()[cfg.k],
+          (val) => this.store.setProperty(cfg.k, val)
+        );
+      });
+    }
+
+    _buildEnvironmentControls() {
+      const swatchRow = DOM.create("div", "swrow");
+      const envSwatches = [
+        ["top", "Sky"],
+        ["mid", "Horizon"],
+        ["bot", "Ground"],
+      ];
+
+      envSwatches.forEach(([k, t]) => {
+        swatchRow.appendChild(
+          this._createColorSwatch(
+            { k, t },
+            () => this.store.getState()[k],
+            (val) => this.store.setProperty(k, val)
+          )
+        );
+      });
+      this.envContainer.appendChild(swatchRow);
+
+      this._createSlider(
+        this.envContainer,
+        { k: "env", i: "horizon", t: "Environment intensity", min: 0, max: 2, step: 0.01 },
+        () => this.store.getState().env,
+        (val) => this.store.setProperty("env", val)
+      );
+    }
+
+    _buildOutputControls() {
+      const outputSliders = [
+        { k: "exp", i: "exposure", t: "Exposure", min: -2, max: 2, step: 0.01 },
+        { k: "con", i: "contrast", t: "Contrast", min: 0.6, max: 1.6, step: 0.01 },
+        { k: "sat", i: "sat", t: "Saturation", min: 0, max: 2, step: 0.01 },
+      ];
+
+      outputSliders.forEach((cfg) => {
+        this._createSlider(
+          this.outContainer,
+          cfg,
+          () => this.store.getState()[cfg.k],
+          (val) => this.store.setProperty(cfg.k, val)
+        );
+      });
+    }
+
+    _buildLightControls() {
+      const toolsRow = DOM.create("div", "tools");
+
+      const colorSwatch = this._createColorSwatch(
+        { k: "col", t: "Light color", isLightColor: true },
+        () => this.store.getSelectedLight()?.col,
+        (val) => this.store.setSelectedLightProperty("col", val)
+      );
+      toolsRow.appendChild(colorSwatch);
+
+      const shapeBtn = DOM.createIconButton("square", "Light shape", () => {
+        const light = this.store.getSelectedLight();
+        if (!light) return;
+        const nextShape = light.shape ? 0 : 1;
+        this.store.setSelectedLightProperty("shape", nextShape);
+        updateShapeIcon();
+        this.onLiveChange(true);
+        this.history.commit();
+      });
+
+      const updateShapeIcon = () => {
+        const light = this.store.getSelectedLight();
+        shapeBtn.innerHTML = DOM.svg(light && light.shape ? "square" : "circle");
+      };
+      this.syncCallbacks.push(updateShapeIcon);
+      toolsRow.appendChild(shapeBtn);
+
+      toolsRow.appendChild(DOM.create("span", "grow"));
+
+      const deleteBtn = DOM.createIconButton("trash", "Delete light", () => {
+        const state = this.store.getState();
+        if (state.lights.length < CONFIG.MIN_LIGHTS) return;
+        this.store.removeSelectedLight();
+        this.onChipRebuildNeeded();
+        this.syncControls();
+        this.onLiveChange(true);
+        this.history.commit();
+      });
+
+      this.syncCallbacks.push(() => {
+        deleteBtn.disabled = this.store.getState().lights.length < CONFIG.MIN_LIGHTS;
+      });
+      toolsRow.appendChild(deleteBtn);
+
+      this.lightContainer.appendChild(toolsRow);
+
+      const lightSliders = [
+        { k: "int", i: "sun", t: "Light intensity", min: 0, max: 8, step: 0.05 },
+        { k: "size", i: "size", t: "Light size", min: 0.05, max: 2, step: 0.01 },
+        { k: "asp", i: "aspect", t: "Light aspect", min: 0.2, max: 5, step: 0.01 },
+        { k: "soft", i: "soft", t: "Light softness", min: 0.01, max: 0.95, step: 0.01 },
+      ];
+
+      lightSliders.forEach((cfg) => {
+        this._createSlider(
+          this.lightContainer,
+          cfg,
+          () => this.store.getSelectedLight()?.[cfg.k],
+          (val) => this.store.setSelectedLightProperty(cfg.k, val)
+        );
+      });
+    }
+
+    syncControls() {
+      for (const sync of this.syncCallbacks) {
+        sync();
+      }
+    }
+  }
+
+  class LightChipsController {
+    constructor(container, store, history, onSelectionChanged, onStructureChanged) {
+      this.container = container;
+      this.store = store;
+      this.history = history;
+      this.onSelectionChanged = onSelectionChanged;
+      this.onStructureChanged = onStructureChanged;
+    }
+
+    rebuild() {
+      this.container.innerHTML = "";
+      const state = this.store.getState();
+
+      state.lights.forEach((light, i) => {
+        const chip = DOM.create("button", "chip" + (i === state.sel ? " on" : ""));
+        chip.style.background = light.col;
+        chip.title = "Light " + (i + 1);
+        chip.setAttribute("aria-label", "Light " + (i + 1));
+        chip.addEventListener("click", () => {
+          this.store.selectLight(i);
+          this.onSelectionChanged();
+        });
+        this.container.appendChild(chip);
+      });
+
+      const addBtn = DOM.create("button", "chip add", DOM.svg("plus"));
+      addBtn.title = "Add light";
+      addBtn.setAttribute("aria-label", "Add light");
+      addBtn.disabled = state.lights.length >= CONFIG.MAX_LIGHTS;
+
+      addBtn.addEventListener("click", () => {
+        if (this.store.getState().lights.length >= CONFIG.MAX_LIGHTS) return;
+        const angle = Math.random() * Math.PI * 2;
+        const radius = 0.35 + Math.random() * 0.5;
+        const newLight = createLight(
+          +(Math.cos(angle) * radius).toFixed(3),
+          +(Math.sin(angle) * radius).toFixed(3),
+          "#ffffff",
+          2,
+          0.6,
+          1,
+          0.4,
+          1
+        );
+        this.store.addLight(newLight);
+        this.onStructureChanged();
+        this.history.commit();
+      });
+
+      this.container.appendChild(addBtn);
+    }
+  }
+
+  class PresetGridView {
+    constructor(container, store, history, renderer, onPresetApplied) {
+      this.container = container;
+      this.store = store;
+      this.history = history;
+      this.renderer = renderer;
+      this.onPresetApplied = onPresetApplied;
+    }
+
+    buildPresets(presets) {
+      this.container.innerHTML = "";
+      presets.forEach((preset, i) => {
+        const button = DOM.create("button", "pr");
+        button.setAttribute("aria-label", "Preset " + (i + 1));
+        button.title = "Preset " + (i + 1);
+
+        const thumbCanvas = this._renderThumbnail(preset, CONFIG.PRESET_THUMB_SIZE);
+        button.appendChild(thumbCanvas);
+
+        button.addEventListener("click", () => {
+          this.store.setState(preset);
+          this.onPresetApplied();
+          this.history.commit();
+        });
+
+        this.container.appendChild(button);
+      });
+    }
+
+    _renderThumbnail(presetState, size) {
+      const canvas = DOM.create("canvas");
+      canvas.width = canvas.height = size;
+      const pixels = this.renderer.renderPixels(presetState, size, false);
+      const ctx = canvas.getContext("2d");
+      ctx.putImageData(new ImageData(pixels, size, size), 0, 0);
+      return canvas;
+    }
+  }
+
+  class ExportService {
+    constructor(saveButton, renderer, store) {
+      this.saveButton = saveButton;
+      this.renderer = renderer;
+      this.store = store;
+      this.selectedResolution = CONFIG.DEFAULT_RESOLUTION;
+      this.isAlphaEnabled = false;
+
+      this._bindSaveAction();
+    }
+
+    setResolution(size) {
+      this.selectedResolution = size;
+    }
+
+    setAlphaEnabled(enabled) {
+      this.isAlphaEnabled = enabled;
+    }
+
+    _bindSaveAction() {
+      this.saveButton.addEventListener("click", async () => {
+        if (this.saveButton.disabled) return;
+        this.saveButton.disabled = true;
+
+        try {
+          await this.exportPng();
+          this.saveButton.innerHTML = DOM.svg("check");
+          setTimeout(() => {
+            this.saveButton.innerHTML = DOM.svg("save");
+          }, 1400);
+        } catch (err) {
+          console.error("Export error:", err);
+        } finally {
+          this.saveButton.disabled = false;
+        }
+      });
+    }
+
+    async exportPng() {
+      const maxSize = this.renderer.getMaxSupportedTextureSize();
+      const finalSize = Math.min(this.selectedResolution, maxSize);
+      const pixels = this.renderer.renderPixels(this.store.getState(), finalSize, this.isAlphaEnabled);
+
+      const tempCanvas = DOM.create("canvas");
+      tempCanvas.width = tempCanvas.height = finalSize;
+      const ctx = tempCanvas.getContext("2d");
+      ctx.putImageData(new ImageData(pixels, finalSize, finalSize), 0, 0);
+
+      const blob = await new Promise((resolve) => tempCanvas.toBlob(resolve, "image/png"));
+      const filename = `matcap-${finalSize}.png`;
+
+      const blobUrl = URL.createObjectURL(blob);
+      const downloadLink = document.createElement("a");
+      downloadLink.href = blobUrl;
+      downloadLink.download = filename;
+      document.body.appendChild(downloadLink);
+      downloadLink.click();
+      document.body.removeChild(downloadLink);
+      URL.revokeObjectURL(blobUrl);
+    }
+  }
+
+  class ToolbarController {
+    constructor(elements, history, store, exportService, onModeToggled, onRandomize) {
+      this.undoBtn = elements.undo;
+      this.redoBtn = elements.redo;
+      this.diceBtn = elements.dice;
+      this.modeBtn = elements.mode;
+      this.alphaBtn = elements.alpha;
+      this.sizesContainer = elements.sizes;
+      this.saveBtn = elements.save;
+
+      this.history = history;
+      this.store = store;
+      this.exportService = exportService;
+      this.onModeToggled = onModeToggled;
+      this.onRandomize = onRandomize;
+      this.mode = "disk";
+
+      this._initIcons();
+      this._bindEvents();
+    }
+
+    _initIcons() {
+      this.undoBtn.innerHTML = DOM.svg("undo");
+      this.redoBtn.innerHTML = DOM.svg("redo");
+      this.diceBtn.innerHTML = DOM.svg("dice");
+      this.modeBtn.innerHTML = DOM.svg("cube");
+      this.alphaBtn.innerHTML = DOM.svg("checker");
+      this.saveBtn.innerHTML = DOM.svg("save");
+    }
+
+    _bindEvents() {
+      this.undoBtn.addEventListener("click", () => this.history.undo());
+      this.redoBtn.addEventListener("click", () => this.history.redo());
+      this.diceBtn.addEventListener("click", () => this.onRandomize());
+
+      this.modeBtn.addEventListener("click", () => {
+        this.mode = (this.mode === "disk") ? "mesh" : "disk";
+        const isMesh = (this.mode === "mesh");
+        this.modeBtn.setAttribute("aria-pressed", String(isMesh));
+        this.modeBtn.innerHTML = DOM.svg(isMesh ? "disk" : "cube");
+        this.modeBtn.title = this.modeBtn.ariaLabel = isMesh ? "Flat preview" : "3D preview";
+        this.onModeToggled(this.mode);
+      });
+
+      this.alphaBtn.addEventListener("click", () => {
+        const active = !this.exportService.isAlphaEnabled;
+        this.exportService.setAlphaEnabled(active);
+        this.alphaBtn.setAttribute("aria-pressed", String(active));
+      });
+
+      this.sizesContainer.addEventListener("click", (e) => {
+        const btn = e.target.closest("button");
+        if (!btn) return;
+        const size = +btn.dataset.s;
+        this.exportService.setResolution(size);
+        [...this.sizesContainer.children].forEach((child) => {
+          child.setAttribute("aria-pressed", String(child === btn));
+        });
+      });
+
+      this.history.subscribe(({ canUndo, canRedo }) => {
+        this.undoBtn.disabled = !canUndo;
+        this.redoBtn.disabled = !canRedo;
+      });
+    }
+  }
+
+  /* ==========================================================================
+     9. APPLICATION COORDINATOR & LIFECYCLE
+     ========================================================================== */
+  class MatcapApp {
+    constructor() {
+      this.mode = "disk";
+      this.materialDirty = true;
+      this.animationFrameId = 0;
+      this.reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    }
+
+    init() {
+      const cv = DOM.find("#cv");
+      const view = DOM.find("#view");
+
+      // Initialize WebGL subsystem
+      try {
+        this.renderer = new WebGLRenderer(cv);
+      } catch (err) {
+        view.innerHTML = '<div class="msg">WebGL 2 is not available</div>';
+        return;
+      }
+
+      // Initialize State & History
+      this.store = new StateStore(PRESETS[0]);
+      this.history = new HistoryManager(this.store);
+      this.history.loadFromStorage(PRESETS[0]);
+      this.history.init();
+
+      // Initialize Viewport Controllers
+      this.orbitController = new OrbitViewController(view, () => this.requestRedraw(false));
+
+      this.handlesController = new HandlesOverlayController(
+        DOM.find("#hd"),
+        view,
+        this.store,
+        this.history,
+        (matChanged) => this.requestRedraw(matChanged)
+      );
+
+      this.chipsController = new LightChipsController(
+        DOM.find("#chips"),
+        this.store,
+        this.history,
+        () => {
+          this.inspectorController.syncControls();
+          this.handlesController.positionHandles();
+        },
+        () => {
+          this.chipsController.rebuild();
+          this.inspectorController.syncControls();
+          this.handlesController.syncHandles();
+          this.requestRedraw(true);
+        }
+      );
+
+      this.inspectorController = new InspectorController(
+        {
+          material: "#matCtl",
+          environment: "#envCtl",
+          output: "#outCtl",
+          light: "#lightCtl",
+        },
+        this.store,
+        this.history,
+        (matChanged) => {
+          this.requestRedraw(matChanged);
+          this.handlesController.positionHandles();
+        },
+        () => {
+          this.chipsController.rebuild();
+        }
+      );
+
+      this.presetGridView = new PresetGridView(
+        DOM.find("#presets"),
+        this.store,
+        this.history,
+        this.renderer,
+        () => {
+          this.chipsController.rebuild();
+          this.inspectorController.syncControls();
+          this.handlesController.syncHandles();
+          this.requestRedraw(true);
+        }
+      );
+
+      this.exportService = new ExportService(
+        DOM.find("#save"),
+        this.renderer,
+        this.store
+      );
+
+      this.toolbarController = new ToolbarController(
+        {
+          undo: DOM.find("#undo"),
+          redo: DOM.find("#redo"),
+          dice: DOM.find("#dice"),
+          mode: DOM.find("#mode"),
+          alpha: DOM.find("#alpha"),
+          sizes: DOM.find("#sizes"),
+          save: DOM.find("#save"),
+        },
+        this.history,
+        this.store,
+        this.exportService,
+        (newMode) => {
+          this.mode = newMode;
+          this.orbitController.setEnabled(newMode === "mesh");
+          this.handlesController.setMode(newMode);
+          this.requestRedraw(false);
+        },
+        () => {
+          ProceduralGenerator.randomize(this.store);
+          this.chipsController.rebuild();
+          this.inspectorController.syncControls();
+          this.handlesController.syncHandles();
+          this.requestRedraw(true);
+          this.history.commit();
+        }
+      );
+
+      // Build initial UI
+      this.inspectorController.syncControls();
+      this.chipsController.rebuild();
+      this.presetGridView.buildPresets(PRESETS);
+
+      // Subscribe history listener to update UI on undo/redo
+      this.store.subscribe((_, eventType) => {
+        if (eventType === "LOAD_SNAPSHOT" || eventType === "SET_STATE") {
+          this.chipsController.rebuild();
+          this.inspectorController.syncControls();
+          this.handlesController.syncHandles();
+          this.requestRedraw(true);
+        }
+      });
+
+      // Global keyboard shortcuts
+      document.addEventListener("keydown", (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
+          e.preventDefault();
+          if (e.shiftKey) {
+            this.history.redo();
+          } else {
+            this.history.undo();
+          }
+        } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") {
+          e.preventDefault();
+          this.history.redo();
+        }
+      });
+
+      // Observe container size
+      const stage = DOM.find("#stage");
+      new ResizeObserver(() => this.layout()).observe(stage);
+      this.layout();
+    }
+
+    layout() {
+      const stage = DOM.find("#stage");
+      const bar = DOM.find("#bar");
+      const view = DOM.find("#view");
+      const cv = DOM.find("#cv");
+
+      const cs = getComputedStyle(stage);
+      const padX = parseFloat(cs.paddingLeft) * 2;
+      const padY = parseFloat(cs.paddingTop) * 2;
+      const gap = parseFloat(cs.rowGap) || 0;
+      const side = Math.max(
+        160,
+        Math.floor(Math.min(stage.clientWidth - padX, stage.clientHeight - padY - bar.offsetHeight - gap))
+      );
+
+      view.style.width = view.style.height = side + "px";
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const px = Math.round(side * dpr);
+      if (cv.width !== px) {
+        cv.width = cv.height = px;
+      }
+      this.requestRedraw(false);
+    }
+
+    requestRedraw(materialChanged = true) {
+      if (materialChanged) {
+        this.materialDirty = true;
+      }
+      if (!this.animationFrameId) {
+        this.animationFrameId = requestAnimationFrame(() => this._renderFrame());
+      }
+    }
+
+    _renderFrame() {
+      this.animationFrameId = 0;
+      if (!this.renderer) return;
+
+      const cv = DOM.find("#cv");
+      const width = cv.width;
+      const height = cv.height;
+      const state = this.store.getState();
+
+      if (this.mode === "disk") {
+        this.renderer.renderDiskPreview(state, width, height);
+      } else {
+        if (this.materialDirty) {
+          this.renderer.updateMeshMaterialTexture(state);
+          this.materialDirty = false;
+        }
+        this.renderer.renderMeshPreview(
+          state,
+          width,
+          height,
+          this.orbitController.getRotationMatrix()
+        );
+
+        if (!this.reduceMotion && !this.orbitController.isDragging) {
+          this.orbitController.stepAutoRotation();
+        }
+      }
+
+      if (this.mode === "mesh" && !this.reduceMotion && !this.orbitController.isDragging) {
+        this.animationFrameId = requestAnimationFrame(() => this._renderFrame());
+      }
+    }
+  }
+
+  // Application bootstrap
+  const app = new MatcapApp();
+  app.init();
+})();
+
+</script>
+
+</body></html>
